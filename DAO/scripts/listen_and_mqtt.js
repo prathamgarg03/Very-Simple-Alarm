@@ -7,12 +7,23 @@
  *        run: node scripts/listen_and_mqtt.js
  ********************************************************/
 
-const { ethers } = require('hardhat');
+// support running under `npx hardhat run` (hardhat injects ethers) or directly with node
+let ethers;
+try {
+  // when executed with `npx hardhat run` this is available
+  ethers = globalThis.ethers || require('hardhat').ethers;
+} catch (e) {
+  // fallback to standalone ethers when running with `node`
+  ethers = require('ethers');
+}
 const mqtt = require('mqtt');
 
 async function main() {
   const rpc = process.env.RPC_URL || 'http://127.0.0.1:8545';
-  const provider = new ethers.providers.JsonRpcProvider(rpc);
+  // support ethers v6 (ethers.JsonRpcProvider) and v5 (ethers.providers.JsonRpcProvider)
+  const ProviderClass = ethers.JsonRpcProvider || (ethers.providers && ethers.providers.JsonRpcProvider);
+  if (!ProviderClass) throw new Error('JsonRpcProvider not found on ethers - ensure ethers is installed');
+  const provider = new ProviderClass(rpc);
   const contractAddress = process.env.CONTRACT_ADDRESS || '0x5FbDB2315678afecb367f032d93F642f64180aa3';
 
   const abi = [
