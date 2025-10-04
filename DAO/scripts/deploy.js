@@ -1,20 +1,23 @@
+const hre = require("hardhat");
+
 async function main() {
-  const [deployer] = await ethers.getSigners();
-  console.log("Deploying contracts with", deployer.address);
+  const [deployer] = await hre.ethers.getSigners();
+  console.log("Deploying with account:", deployer.address);
 
-  const Friend = await ethers.getContractFactory("FriendForHireDAO");
-  // use deployer as treasury for demo
-  const friend = await Friend.deploy(deployer.address);
-  // ethers v6 contracts use waitForDeployment()
-  await friend.waitForDeployment();
+  // Example friends and weights
+  const friends = [
+    "0x1111111111111111111111111111111111111111",
+    "0x2222222222222222222222222222222222222222"
+  ];
+  const weights = [5, 10];
 
-  const addr = await friend.getAddress();
-  console.log("FriendForHireDAO deployed to:", addr);
+  const DAO = await hre.ethers.deployContract("FriendshipAlarmDAO", [friends, weights]);
+  await DAO.waitForDeployment();
+
+  console.log("FriendshipAlarmDAO deployed at:", DAO.target);
 }
 
-main()
-  .then(() => process.exit(0))
-  .catch((error) => {
-    console.error(error);
-    process.exit(1);
-  });
+main().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});
