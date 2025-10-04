@@ -1,0 +1,11 @@
+# Requirements for MTCNN Face Detector and Eye Awareness Analyzer
+
+# Core dependencies (required)
+mtcnn>=0.1.1
+opencv-python>=4.5.0
+numpy>=1.19.0
+tensorflow>=2.0.0
+
+# Optional dependencies (for enhanced features)
+matplotlib>=3.3.0  # For advanced visualizations
+Pillow>=8.0.0      # For image format support
