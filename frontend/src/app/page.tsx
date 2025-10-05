@@ -5,9 +5,16 @@ import { useEffect, useState } from "react";
 import AlarmsPanel from "@/components/alarms-panel";
 
 export default function Page() {
-  const [currentTime, setCurrentTime] = useState(new Date());
+  // Keep initial state undefined so server-rendered HTML doesn't include a
+  // concrete time string. That prevents hydration mismatch when the client
+  // replaces the placeholder with the actual time after mount.
+  const [currentTime, setCurrentTime] = useState<Date | undefined>(undefined);
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
+    // mark mounted and start timer only on the client
+    setMounted(true);
+    setCurrentTime(new Date());
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
@@ -34,10 +41,15 @@ export default function Page() {
       <div className="h-screen flex items-center justify-center p-4">
         <div className="text-center">
           <h1 className="text-7xl md:text-9xl font-bold mb-4 tabular-nums tracking-tight">
-            {formatTime(currentTime)}
+            {mounted && currentTime ? (
+              formatTime(currentTime)
+            ) : (
+              // server-rendered placeholder (stable across server and client)
+              "--:--:--"
+            )}
           </h1>
           <p className="text-xl md:text-2xl text-neutral-400 mb-12">
-            {formatDate(currentTime)}
+            {mounted && currentTime ? formatDate(currentTime) : ""}
           </p>
           <div className="flex justify-center">
             <div className="animate-bounce">

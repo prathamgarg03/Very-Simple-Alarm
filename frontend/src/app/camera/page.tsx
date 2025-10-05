@@ -78,14 +78,24 @@
 import { useEffect, useRef, useState } from 'react'
 import Script from 'next/script'
 
+/* eslint-disable @typescript-eslint/no-explicit-any */
 declare global {
   interface Window {
-    faceapi: any
+    faceapi: {
+      nets: {
+        tinyFaceDetector: { loadFromUri: (uri: string) => Promise<void> }
+        faceLandmark68Net: { loadFromUri: (uri: string) => Promise<void> }
+      }
+      TinyFaceDetectorOptions: any
+      detectAllFaces: (video: HTMLVideoElement, options?: any) => any
+    }
   }
 }
+/* eslint-enable @typescript-eslint/no-explicit-any */
 
 export default function AwakenessDebug() {
   const videoRef = useRef<HTMLVideoElement | null>(null)
+  const [mounted, setMounted] = useState(false)
   const [earValues, setEarValues] = useState({ left: 0, right: 0, avg: 0 })
   const [isAwake, setIsAwake] = useState(false)
   
@@ -172,8 +182,10 @@ export default function AwakenessDebug() {
       return ear
     }
 
-    loadModels()
-    const interval = setInterval(checkAwake, 300)
+  // Only start detection loop on the client after mount
+  setMounted(true)
+  loadModels()
+  const interval = setInterval(checkAwake, 300)
 
     return () => clearInterval(interval)
   }, [])
@@ -208,14 +220,23 @@ export default function AwakenessDebug() {
           </div>
         </div>
 
-        <video
-          ref={videoRef}
-          width="640"
-          height="480"
-          autoPlay
-          muted
-          className="rounded-lg"
-        />
+        {/* Only render the video element after client mount to avoid
+            attribute mismatches introduced by browser extensions or
+            other client-side modifications during hydration. */}
+        {mounted ? (
+          <video
+            ref={videoRef}
+            width="640"
+            height="480"
+            autoPlay
+            muted
+            className="rounded-lg"
+            suppressHydrationWarning
+          />
+        ) : (
+          // server-side placeholder with same layout to avoid layout shift
+          <div style={{ width: 640, height: 480 }} />
+        )}
       </div>
     </>
   )
