@@ -11,12 +11,26 @@ from typing import Union, Dict, Any, Optional, Tuple, List
 import os
 from pathlib import Path
 
+# Prefer the PyTorch-backed MTCNN (facenet-pytorch) because it's easier to
+# install and avoids TensorFlow dependency issues. Fall back to the
+# tensorflow-based `mtcnn` package if facenet-pytorch isn't installed.
+_BACKEND = None
+_FACENET = None
 try:
-    from mtcnn import MTCNN
-except ImportError:
-    raise ImportError(
-        "MTCNN library not found. Please install it using: pip install mtcnn"
-    )
+    from facenet_pytorch import MTCNN as FacenetMTCNN
+    _BACKEND = 'facenet'
+    _FACENET = FacenetMTCNN
+except Exception:
+    try:
+        from mtcnn import MTCNN as TfMTCNN
+        _BACKEND = 'tensorflow'
+        _FACENET = TfMTCNN
+    except Exception:
+        raise ImportError(
+            "No MTCNN backend found. Install either facenet-pytorch (recommended) or mtcnn.\n"
+            "Try: pip install facenet-pytorch torch torchvision    # recommended (CPU/GPU wheels vary)\n"
+            "Or: pip install mtcnn    # tensorflow-based, requires tensorflow"
+        )
 
 
 class MTCNNFaceDetector:
@@ -42,11 +56,19 @@ class MTCNNFaceDetector:
             steps_threshold = [0.6, 0.7, 0.7]
         
         try:
-            self.detector = MTCNN(
-                min_face_size=min_face_size,
-                scale_factor=scale_factor,
-                steps_threshold=steps_threshold
-            )
+            if _BACKEND == 'facenet':
+                # facenet_pytorch.MTCNN parameters differ; use defaults and keep_all=False
+                # Use device auto-detection
+                self.detector = _FACENET(keep_all=True, device=None)
+                self._backend = 'facenet'
+            else:
+                # tensorflow mtcnn
+                self.detector = _FACENET(
+                    min_face_size=min_face_size,
+                    scale_factor=scale_factor,
+                    steps_threshold=steps_threshold
+                )
+                self._backend = 'tensorflow'
         except Exception as e:
             raise RuntimeError(f"Failed to initialize MTCNN detector: {str(e)}")
 
@@ -130,39 +152,67 @@ class MTCNNFaceDetector:
             # Load and validate image
             img = self._load_image(image)
             
-            # Run MTCNN detection
-            detections = self.detector.detect_faces(img)
-            
-            if len(detections) == 0:
-                result['error'] = "No face detected in the image"
+            # Run MTCNN detection. Normalize outputs to match the previous 'mtcnn' package
+            # which returned a list of detections each with 'box','confidence','keypoints'.
+            if self._backend == 'facenet':
+                # facenet_pytorch returns boxes, probs, points
+                boxes, probs, points = self.detector.detect(img, landmarks=True)
+                if boxes is None or len(boxes) == 0:
+                    result['error'] = "No face detected in the image"
+                    return result
+
+                if len(boxes) > 1:
+                    result['error'] = f"Multiple faces detected ({len(boxes)}). Please use an image with exactly one face"
+                    return result
+
+                # single detection
+                box = boxes[0]  # [x1, y1, x2, y2]
+                x1, y1, x2, y2 = [int(round(v)) for v in box]
+                w = x2 - x1
+                h = y2 - y1
+                result['bounding_box'] = [x1, y1, w, h]
+                result['confidence'] = float(probs[0]) if probs is not None else None
+
+                lm = points[0] if points is not None else None  # shape (5,2)
+                if lm is not None:
+                    # facenet landmark order: left_eye, right_eye, nose, mouth_left, mouth_right
+                    result['keypoints'] = {
+                        'left_eye': [float(lm[0][0]), float(lm[0][1])],
+                        'right_eye': [float(lm[1][0]), float(lm[1][1])],
+                        'nose': [float(lm[2][0]), float(lm[2][1])],
+                        'mouth_left': [float(lm[3][0]), float(lm[3][1])],
+                        'mouth_right': [float(lm[4][0]), float(lm[4][1])]
+                    }
+
+                result['success'] = True
                 return result
-            
-            elif len(detections) > 1:
-                result['error'] = f"Multiple faces detected ({len(detections)}). Please use an image with exactly one face"
+            else:
+                # tensorflow mtcnn package API
+                detections = self.detector.detect_faces(img)
+
+                if len(detections) == 0:
+                    result['error'] = "No face detected in the image"
+                    return result
+
+                if len(detections) > 1:
+                    result['error'] = f"Multiple faces detected ({len(detections)}). Please use an image with exactly one face"
+                    return result
+
+                detection = detections[0]
+                bbox = detection['box']
+                result['bounding_box'] = [bbox['x'], bbox['y'], bbox['width'], bbox['height']]
+                result['confidence'] = detection.get('confidence')
+                keypoints = detection.get('keypoints', {})
+                result['keypoints'] = {
+                    'left_eye': [keypoints['left_eye'][0], keypoints['left_eye'][1]],
+                    'right_eye': [keypoints['right_eye'][0], keypoints['right_eye'][1]],
+                    'nose': [keypoints['nose'][0], keypoints['nose'][1]],
+                    'mouth_left': [keypoints['mouth_left'][0], keypoints['mouth_left'][1]],
+                    'mouth_right': [keypoints['mouth_right'][0], keypoints['mouth_right'][1]]
+                }
+
+                result['success'] = True
                 return result
-            
-            # Extract detection data for single face
-            detection = detections[0]
-            
-            # Extract bounding box
-            bbox = detection['box']
-            result['bounding_box'] = [bbox['x'], bbox['y'], bbox['width'], bbox['height']]
-            
-            # Extract confidence score
-            result['confidence'] = detection['confidence']
-            
-            # Extract keypoints
-            keypoints = detection['keypoints']
-            result['keypoints'] = {
-                'left_eye': [keypoints['left_eye'][0], keypoints['left_eye'][1]],
-                'right_eye': [keypoints['right_eye'][0], keypoints['right_eye'][1]],
-                'nose': [keypoints['nose'][0], keypoints['nose'][1]],
-                'mouth_left': [keypoints['mouth_left'][0], keypoints['mouth_left'][1]],
-                'mouth_right': [keypoints['mouth_right'][0], keypoints['mouth_right'][1]]
-            }
-            
-            result['success'] = True
-            return result
             
         except FileNotFoundError as e:
             result['error'] = str(e)

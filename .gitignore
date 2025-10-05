@@ -1,5 +1,7 @@
 # Virtual environments
 venv/
+venv2/
+venv_tf/
 env/
 ENV/
 .venv/
