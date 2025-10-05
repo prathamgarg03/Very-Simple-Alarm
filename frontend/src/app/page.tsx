@@ -65,18 +65,12 @@ export default function Page() {
       </div>
 
       <AlarmsPanel />
-
+{/* 
       <div className="bg-white p-8 rounded-lg shadow-lg">
         <h1 className="text-2xl font-bold mb-4">Ultrasonic Sensor</h1>
         <DistanceSensor />
-      </div>
-      
-      {/* DAO Section */}
-      <div className="min-h-screen bg-neutral-950 p-6">
-        <div className="max-w-2xl mx-auto">
-          {/* <DAOControls /> */}
-        </div>
-      </div>
+      </div> */}
+
     </div>
   );
 }

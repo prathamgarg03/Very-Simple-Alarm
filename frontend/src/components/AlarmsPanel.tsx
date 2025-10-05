@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Plus, Bell, Eye } from "lucide-react";
+import { Plus, Bell } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -63,6 +63,8 @@ export default function AlarmsPanel() {
   const [newAlarmTime, setNewAlarmTime] = useState("");
   const [newAlarmLabel, setNewAlarmLabel] = useState("");
   const [activeAlarm, setActiveAlarm] = useState<Alarm | null>(null);
+  const [alarmWaitingForMotion, setAlarmWaitingForMotion] = useState<Alarm | null>(null);
+  const [motionDetected, setMotionDetected] = useState(false);
   const [isAwake, setIsAwake] = useState(false);
   const [earValue, setEarValue] = useState(0);
   const [modelsLoaded, setModelsLoaded] = useState(false);
@@ -77,6 +79,30 @@ export default function AlarmsPanel() {
   const detectionIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const EAR_THRESHOLD = 0.28;
+
+  // Fetch motion data from serial server
+  useEffect(() => {
+    const fetchMotion = async () => {
+      try {
+        const res = await fetch('http://localhost:3001/distance');
+        const data = await res.json();
+        setMotionDetected(data.motionDetected);
+      } catch (err) {
+        console.error('Motion detection error:', err);
+      }
+    };
+
+    const interval = setInterval(fetchMotion, 100);
+    return () => clearInterval(interval);
+  }, []);
+
+  // When motion is detected and alarm is waiting, show dialog
+  useEffect(() => {
+    if (motionDetected && alarmWaitingForMotion && !activeAlarm) {
+      setActiveAlarm(alarmWaitingForMotion);
+      setAlarmWaitingForMotion(null);
+    }
+  }, [motionDetected, alarmWaitingForMotion, activeAlarm]);
 
   // Load face detection models
   useEffect(() => {
@@ -212,7 +238,10 @@ export default function AlarmsPanel() {
   };
 
   const triggerAlarm = (alarm: Alarm, currentTimeStr: string) => {
-    setActiveAlarm(alarm);
+    // Set alarm as waiting for motion (dialog won't show yet)
+    setAlarmWaitingForMotion(alarm);
+    
+    // Start playing sound immediately
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current.currentTime = 0;
@@ -221,6 +250,7 @@ export default function AlarmsPanel() {
     audio.loop = true;
     audio.play().catch(() => {});
     audioRef.current = audio;
+    
     markLastTriggeredMutation({ id: alarm._id, lastTriggered: currentTimeStr });
   };
 
@@ -231,6 +261,7 @@ export default function AlarmsPanel() {
       audioRef.current.currentTime = 0;
     }
     setActiveAlarm(null);
+    setAlarmWaitingForMotion(null);
   };
 
   const snoozeAlarm = () => {
@@ -245,6 +276,7 @@ export default function AlarmsPanel() {
     const snoozeTime = snoozeDate.toTimeString().slice(0, 5);
     editAlarm({ id: activeAlarm._id, time: snoozeTime });
     setActiveAlarm(null);
+    setAlarmWaitingForMotion(null);
   };
 
   const deleteAlarm = async (id: Id<"alarms">) => {
@@ -304,7 +336,37 @@ export default function AlarmsPanel() {
           </div>
         </div>
 
-        {/* Alarm Dialog */}
+        {/* Motion waiting overlay - shows while waiting for motion */}
+        {alarmWaitingForMotion && !activeAlarm && (
+          <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
+            <div className="bg-neutral-900 p-8 rounded-lg text-center space-y-6 max-w-md border border-neutral-700">
+              <div className={`text-7xl transition-all duration-300 ${motionDetected ? 'scale-110' : 'scale-100'}`}>
+                {motionDetected ? '✓' : '⏰'}
+              </div>
+              
+              <div>
+                <h3 className="text-3xl font-bold mb-2">{alarmWaitingForMotion.label}</h3>
+                <p className="text-5xl font-mono text-white">{alarmWaitingForMotion.time}</p>
+              </div>
+              
+              <div className={`p-4 rounded-lg transition-colors ${
+                motionDetected 
+                  ? 'bg-green-600 text-white' 
+                  : 'bg-red-600/20 text-red-400 border border-red-600'
+              }`}>
+                <p className="font-bold text-lg">
+                  {motionDetected ? 'Motion Detected! Opening...' : 'Move to dismiss alarm'}
+                </p>
+              </div>
+              
+              <p className="text-sm text-neutral-400">
+                Wave your hand in front of the sensor
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Alarm Dialog - only opens AFTER motion detected */}
         <Dialog open={!!activeAlarm} onOpenChange={() => {}}>
           <DialogContent className="sm:max-w-md" onPointerDownOutside={(e) => e.preventDefault()} onEscapeKeyDown={(e) => e.preventDefault()}>
             <DialogHeader>
