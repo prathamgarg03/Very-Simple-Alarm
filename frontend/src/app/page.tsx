@@ -1,4 +1,3 @@
-// app/page.tsx
 "use client";
 
 import { useEffect, useState } from "react";
@@ -7,14 +6,10 @@ import DAOControls from "@/components/dao-controls";
 import DistanceSensor from "@/components/DistanceSensor";
 
 export default function Page() {
-  // Keep initial state undefined so server-rendered HTML doesn't include a
-  // concrete time string. That prevents hydration mismatch when the client
-  // replaces the placeholder with the actual time after mount.
   const [currentTime, setCurrentTime] = useState<Date | undefined>(undefined);
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    // mark mounted and start timer only on the client
     setMounted(true);
     setCurrentTime(new Date());
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -39,14 +34,12 @@ export default function Page() {
 
   return (
     <div className="min-h-screen bg-black text-neutral-200">
-      {/* Current Time Section */}
       <div className="h-screen flex items-center justify-center p-4">
         <div className="text-center">
           <h1 className="text-7xl md:text-9xl font-bold mb-4 tabular-nums tracking-tight">
             {mounted && currentTime ? (
               formatTime(currentTime)
             ) : (
-              // server-rendered placeholder (stable across server and client)
               "--:--:--"
             )}
           </h1>
@@ -71,7 +64,6 @@ export default function Page() {
         </div>
       </div>
 
-      {/* Alarms Section */}
       <AlarmsPanel />
 
       <div className="bg-white p-8 rounded-lg shadow-lg">
