@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import AlarmsPanel from "@/components/alarms-panel";
+import AlarmsPanel from "@/components/AlarmsPanel";
 
 export default function Page() {
   const [currentTime, setCurrentTime] = useState<Date | undefined>(undefined);
