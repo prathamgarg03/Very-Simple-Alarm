@@ -1,10 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Plus, Trash2, Bell, Eye } from "lucide-react";
-import { Switch } from "@/components/ui/switch";
+import { Plus, Bell, Eye } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -14,30 +12,53 @@ import {
 } from "@/components/ui/dialog";
 import Script from "next/script";
 
+import { useQuery, useMutation } from "convex/react";
+import { api } from "../../convex/_generated/api";
+import { Id } from "../../convex/_generated/dataModel";
+import AddAlarmForm from "./AddAlarmForm";
+import AlarmItem from "./AlarmItem";
+import EyeDetectionPanel from "./EyeDetectionPanel";
+import QuestionChallenge from "./QuestionChallenge";
+
 declare global {
   interface Window {
     faceapi: {
       nets: {
-        tinyFaceDetector: { loadFromUri: (uri: string) => Promise<void> }
-        faceLandmark68Net: { loadFromUri: (uri: string) => Promise<void> }
-      }
-      TinyFaceDetectorOptions: any
-      detectAllFaces: (video: HTMLVideoElement, options?: any) => any
-    }
+        tinyFaceDetector: { loadFromUri: (uri: string) => Promise<void> };
+        faceLandmark68Net: { loadFromUri: (uri: string) => Promise<void> };
+      };
+      TinyFaceDetectorOptions: any;
+      detectAllFaces: (video: HTMLVideoElement, options?: any) => any;
+    };
   }
 }
 
 interface Alarm {
-  id: string;
+  _id: Id<"alarms">;
   time: string;
   label: string;
   enabled: boolean;
-  triggered: boolean;
-  lastTriggered?: string | null;
+  triggered?: boolean;
+  lastTriggered?: string;
+}
+
+interface Question {
+  question: string;
+  answer: string;
 }
 
 export default function AlarmsPanel() {
-  const [alarms, setAlarms] = useState<Alarm[]>([]);
+  // Convex queries
+  const alarms = useQuery(api.alarm.getAlarms) ?? [];
+
+  // Convex mutations
+  const createAlarm = useMutation(api.alarm.createAlarm);
+  const deleteAlarmMutation = useMutation(api.alarm.deleteAlarm);
+  const toggleAlarmEnabled = useMutation(api.alarm.toggleAlarmEnabled);
+  const editAlarm = useMutation(api.alarm.editAlarm);
+  const markLastTriggeredMutation = useMutation(api.alarm.markLastTriggered);
+
+  // Local UI state
   const [showAddForm, setShowAddForm] = useState(false);
   const [newAlarmTime, setNewAlarmTime] = useState("");
   const [newAlarmLabel, setNewAlarmLabel] = useState("");
@@ -45,6 +66,11 @@ export default function AlarmsPanel() {
   const [isAwake, setIsAwake] = useState(false);
   const [earValue, setEarValue] = useState(0);
   const [modelsLoaded, setModelsLoaded] = useState(false);
+  const [question, setQuestion] = useState<Question | null>(null);
+  const [userAnswer, setUserAnswer] = useState("");
+  const [answerCorrect, setAnswerCorrect] = useState(false);
+  const [showError, setShowError] = useState(false);
+  const [loadingQuestion, setLoadingQuestion] = useState(false);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -59,47 +85,65 @@ export default function AlarmsPanel() {
         console.error("face-api.js not loaded");
         return;
       }
-      
       try {
-        await window.faceapi.nets.tinyFaceDetector.loadFromUri('/models');
-        await window.faceapi.nets.faceLandmark68Net.loadFromUri('/models');
-        console.log('Face detection models loaded');
+        await window.faceapi.nets.tinyFaceDetector.loadFromUri("/models");
+        await window.faceapi.nets.faceLandmark68Net.loadFromUri("/models");
+        console.log("Face detection models loaded");
         setModelsLoaded(true);
       } catch (error) {
-        console.error('Error loading models:', error);
+        console.error("Error loading models:", error);
       }
     };
-
-    if (typeof window !== 'undefined' && window.faceapi) {
+    if (typeof window !== "undefined" && window.faceapi) {
       loadModels();
     }
   }, []);
 
-  // Start video when alarm triggers
+  // Start video and fetch question when alarm triggers
   useEffect(() => {
     if (activeAlarm && modelsLoaded) {
       startVideo();
+      fetchQuestion();
     } else if (!activeAlarm) {
       stopVideo();
+      setQuestion(null);
+      setUserAnswer("");
+      setAnswerCorrect(false);
+      setShowError(false);
     }
   }, [activeAlarm, modelsLoaded]);
 
+  const fetchQuestion = async () => {
+    setLoadingQuestion(true);
+    try {
+      const response = await fetch("/api/get-question");
+      const data = await response.json();
+      setQuestion(data);
+    } catch (error) {
+      console.error("Error fetching question:", error);
+      setQuestion({ question: "What is the capital of France?", answer: "Paris" });
+    } finally {
+      setLoadingQuestion(false);
+    }
+  };
+
   const startVideo = () => {
-    navigator.mediaDevices.getUserMedia({ video: true })
-      .then(stream => {
+    navigator.mediaDevices
+      .getUserMedia({ video: true })
+      .then((stream) => {
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
           videoRef.current.play();
           startEyeDetection();
         }
       })
-      .catch(err => console.error('Camera error:', err));
+      .catch((err) => console.error("Camera error:", err));
   };
 
   const stopVideo = () => {
     if (videoRef.current && videoRef.current.srcObject) {
       const stream = videoRef.current.srcObject as MediaStream;
-      stream.getTracks().forEach(track => track.stop());
+      stream.getTracks().forEach((track) => track.stop());
       videoRef.current.srcObject = null;
     }
     if (detectionIntervalRef.current) {
@@ -111,28 +155,21 @@ export default function AlarmsPanel() {
   };
 
   const startEyeDetection = () => {
-    if (detectionIntervalRef.current) {
-      clearInterval(detectionIntervalRef.current);
-    }
-
+    if (detectionIntervalRef.current) clearInterval(detectionIntervalRef.current);
     detectionIntervalRef.current = setInterval(async () => {
       if (!videoRef.current || !window.faceapi) return;
-
       try {
         const detections = await window.faceapi
           .detectAllFaces(videoRef.current, new window.faceapi.TinyFaceDetectorOptions())
           .withFaceLandmarks();
-
         if (detections.length > 0) {
           const landmarks = detections[0].landmarks;
           const leftEye = landmarks.getLeftEye();
           const rightEye = landmarks.getRightEye();
-          
           if (leftEye.length === 6 && rightEye.length === 6) {
             const leftEAR = getEAR(leftEye);
             const rightEAR = getEAR(rightEye);
             const avgEAR = (leftEAR + rightEAR) / 2;
-
             setEarValue(avgEAR);
             setIsAwake(avgEAR > EAR_THRESHOLD);
           }
@@ -141,14 +178,13 @@ export default function AlarmsPanel() {
           setEarValue(0);
         }
       } catch (error) {
-        console.error('Detection error:', error);
+        console.error("Detection error:", error);
       }
     }, 300);
   };
 
-  const euclideanDistance = (p1: { x: number; y: number }, p2: { x: number; y: number }) => {
-    return Math.sqrt((p1.x - p2.x) ** 2 + (p1.y - p2.y) ** 2);
-  };
+  const euclideanDistance = (p1: { x: number; y: number }, p2: { x: number; y: number }) =>
+    Math.sqrt((p1.x - p2.x) ** 2 + (p1.y - p2.y) ** 2);
 
   const getEAR = (eye: Array<{ x: number; y: number }>) => {
     const A = euclideanDistance(eye[1], eye[5]);
@@ -157,6 +193,7 @@ export default function AlarmsPanel() {
     return (A + B) / (2.0 * C);
   };
 
+  // Alarm loop
   useEffect(() => {
     const timer = setInterval(() => {
       const now = new Date();
@@ -168,30 +205,14 @@ export default function AlarmsPanel() {
   const checkAlarms = (now: Date) => {
     const currentTimeStr = now.toTimeString().slice(0, 5);
     alarms.forEach((alarm) => {
-      if (
-        alarm.enabled &&
-        alarm.time === currentTimeStr &&
-        alarm.lastTriggered !== currentTimeStr
-      ) {
-        triggerAlarm(alarm.id, currentTimeStr);
+      if (alarm.enabled && alarm.time === currentTimeStr && alarm.lastTriggered !== currentTimeStr) {
+        triggerAlarm(alarm, currentTimeStr);
       }
     });
   };
 
-  const triggerAlarm = (id: string, currentTimeStr: string) => {
-    const alarm = alarms.find((a) => a.id === id);
-    if (!alarm) return;
-  
-    setAlarms((prev) =>
-      prev.map((a) =>
-        a.id === id
-          ? { ...a, triggered: true, lastTriggered: currentTimeStr }
-          : a
-      )
-    );
+  const triggerAlarm = (alarm: Alarm, currentTimeStr: string) => {
     setActiveAlarm(alarm);
-  
-    // Play alarm sound
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current.currentTime = 0;
@@ -200,90 +221,43 @@ export default function AlarmsPanel() {
     audio.loop = true;
     audio.play().catch(() => {});
     audioRef.current = audio;
+    markLastTriggeredMutation({ id: alarm._id, lastTriggered: currentTimeStr });
   };
 
   const stopAlarm = () => {
-    if (!isAwake) {
-      // Don't stop if eyes aren't open
-      return;
-    }
-
+    if (!isAwake || !answerCorrect) return;
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current.currentTime = 0;
-    }
-    if (activeAlarm) {
-      const now = new Date();
-      const currentTimeStr = now.toTimeString().slice(0, 5);
-      setAlarms((prev) =>
-        prev.map((a) =>
-          a.id === activeAlarm.id
-            ? { ...a, triggered: false, lastTriggered: currentTimeStr }
-            : a
-        )
-      );
     }
     setActiveAlarm(null);
   };
 
   const snoozeAlarm = () => {
-    if (!isAwake || !activeAlarm) {
-      // Don't snooze if eyes aren't open
-      return;
-    }
-
+    if (!isAwake || !answerCorrect || !activeAlarm) return;
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current.currentTime = 0;
     }
-
-    // Add +5 mins
     const [hours, minutes] = activeAlarm.time.split(":").map(Number);
     const snoozeDate = new Date();
     snoozeDate.setHours(hours, minutes + 5, 0, 0);
     const snoozeTime = snoozeDate.toTimeString().slice(0, 5);
-
-    setAlarms((prev) =>
-      prev.map((a) =>
-        a.id === activeAlarm.id
-          ? { ...a, time: snoozeTime, triggered: false, lastTriggered: null }
-          : a
-      )
-    );
+    editAlarm({ id: activeAlarm._id, time: snoozeTime });
     setActiveAlarm(null);
   };
 
-  const addAlarm = () => {
-    if (!newAlarmTime) return;
-    const newAlarm: Alarm = {
-      id: Date.now().toString(),
-      time: newAlarmTime,
-      label: newAlarmLabel || "Alarm",
-      enabled: true,
-      triggered: false,
-    };
-    setAlarms((prev) =>
-      [...prev, newAlarm].sort((a, b) => a.time.localeCompare(b.time))
-    );
-    setNewAlarmTime("");
-    setNewAlarmLabel("");
-    setShowAddForm(false);
+  const deleteAlarm = async (id: Id<"alarms">) => {
+    await deleteAlarmMutation({ id });
   };
 
-  const deleteAlarm = (id: string) => {
-    setAlarms((prev) => prev.filter((a) => a.id !== id));
-  };
-
-  const toggleAlarm = (id: string) => {
-    setAlarms((prev) =>
-      prev.map((a) => (a.id === id ? { ...a, enabled: !a.enabled } : a))
-    );
+  const toggleAlarm = async (id: Id<"alarms">) => {
+    await toggleAlarmEnabled({ id });
   };
 
   return (
     <>
       <Script src="/face-api.min.js" strategy="beforeInteractive" />
-      
       <div className="min-h-screen p-6 md:p-12">
         <div className="max-w-2xl mx-auto">
           <div className="flex items-center justify-between mb-8">
@@ -300,48 +274,13 @@ export default function AlarmsPanel() {
 
           {/* Add form */}
           {showAddForm && (
-            <Card className="bg-neutral-900 border-neutral-800 p-6 mb-6 animate-in slide-in-from-top-2 duration-300">
-              <div className="space-y-4">
-                <div>
-                  <label className="text-sm text-neutral-400 mb-2 block">
-                    Time
-                  </label>
-                  <input
-                    type="time"
-                    value={newAlarmTime}
-                    onChange={(e) => setNewAlarmTime(e.target.value)}
-                    className="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-4 py-3 text-lg focus:outline-none focus:ring-2 focus:ring-neutral-600"
-                  />
-                </div>
-                <div>
-                  <label className="text-sm text-neutral-400 mb-2 block">
-                    Label (optional)
-                  </label>
-                  <input
-                    type="text"
-                    value={newAlarmLabel}
-                    onChange={(e) => setNewAlarmLabel(e.target.value)}
-                    placeholder="Wake up"
-                    className="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-neutral-600"
-                  />
-                </div>
-                <div className="flex gap-3">
-                  <Button
-                    onClick={addAlarm}
-                    className="flex-1 bg-neutral-700 hover:bg-neutral-600 text-neutral-50"
-                  >
-                    Save
-                  </Button>
-                  <Button
-                    onClick={() => setShowAddForm(false)}
-                    variant="outline"
-                    className="flex-1 border-neutral-700 hover:bg-neutral-800 text-neutral-200"
-                  >
-                    Cancel
-                  </Button>
-                </div>
-              </div>
-            </Card>
+            <AddAlarmForm
+              onSave={async (time, label) => {
+                await createAlarm({ time, label });
+                setShowAddForm(false);
+              }}
+              onCancel={() => setShowAddForm(false)}
+            />
           )}
 
           {/* List of alarms */}
@@ -353,98 +292,56 @@ export default function AlarmsPanel() {
               </div>
             ) : (
               alarms.map((alarm, index) => (
-                <Card
-                  key={alarm.id}
-                  className={`bg-neutral-900 border-neutral-800 p-4 animate-in slide-in-from-bottom-2 duration-300 transition-all ${
-                    alarm.triggered ? "ring-2 ring-neutral-300 animate-pulse" : ""
-                  }`}
-                  style={{ animationDelay: `${index * 50}ms` }}
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex-1">
-                      <div className="text-3xl font-bold tabular-nums">
-                        {alarm.time}
-                      </div>
-                      <div className="text-sm text-neutral-400 mt-1">
-                        {alarm.label}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-4">
-                      <Switch
-                        checked={alarm.enabled}
-                        onCheckedChange={() => toggleAlarm(alarm.id)}
-                      />
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => deleteAlarm(alarm.id)}
-                        className="text-neutral-400 hover:text-red-400 hover:bg-neutral-800"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  </div>
-                </Card>
+                <AlarmItem
+                  key={alarm._id}
+                  alarm={alarm}
+                  index={index}
+                  onToggle={toggleAlarm}
+                  onDelete={deleteAlarm}
+                />
               ))
             )}
           </div>
         </div>
 
-        {/* Alarm Dialog - Cannot be closed by clicking outside or X button */}
-        <Dialog 
-          open={!!activeAlarm} 
-          onOpenChange={() => {}} // Prevent closing
-        >
-          <DialogContent 
-            className="sm:max-w-md"
-            onPointerDownOutside={(e) => e.preventDefault()} // Block outside clicks
-            onEscapeKeyDown={(e) => e.preventDefault()} // Block ESC key
-            showCloseButton={false} // Hide the close button
-          >
+        {/* Alarm Dialog */}
+        <Dialog open={!!activeAlarm} onOpenChange={() => {}}>
+          <DialogContent className="sm:max-w-md" onPointerDownOutside={(e) => e.preventDefault()} onEscapeKeyDown={(e) => e.preventDefault()}>
             <DialogHeader>
               <DialogTitle>{activeAlarm?.label || "Alarm"}</DialogTitle>
             </DialogHeader>
-            
             <div className="space-y-4">
-              {/* Video feed */}
-              <div className="relative bg-neutral-800 rounded-lg overflow-hidden">
-                <video
-                  ref={videoRef}
-                  autoPlay
-                  muted
-                  className="w-full h-48 object-cover"
-                />
-                <div className="absolute top-2 right-2 bg-black/70 px-3 py-1 rounded-full text-xs flex items-center gap-2">
-                  <Eye className="w-4 h-4" />
-                  <span>EAR: {earValue.toFixed(3)}</span>
-                </div>
+              <EyeDetectionPanel
+                modelsLoaded={modelsLoaded}
+                isActive={!!activeAlarm}
+                earValue={earValue}
+                onEarChange={setEarValue}
+                onAwakeChange={setIsAwake}
+              />
+              <div
+                className={`text-center py-3 rounded-lg ${
+                  isAwake ? "bg-green-600/20 text-green-400" : "bg-red-600/20 text-red-400"
+                }`}
+              >
+                <p className="text-sm font-medium">{isAwake ? "✓ Eyes Open" : "✗ Open your eyes"}</p>
               </div>
-
-              {/* Status indicator */}
-              <div className={`text-center py-4 rounded-lg ${isAwake ? 'bg-green-600/20 text-green-400' : 'bg-red-600/20 text-red-400'}`}>
-                <p className="text-sm font-medium">
-                  {isAwake ? '👁️ Eyes detected - You can dismiss the alarm' : '😴 Open your eyes to dismiss the alarm'}
-                </p>
-              </div>
-
-              {/* Alarm time */}
+              <QuestionChallenge onCorrect={() => setAnswerCorrect(true)} />
               <div className="text-center py-4">
                 <p className="text-5xl font-bold">{activeAlarm?.time}</p>
               </div>
             </div>
-
             <DialogFooter className="flex justify-between gap-3">
-              <Button 
-                onClick={snoozeAlarm} 
-                disabled={!isAwake}
-                className="bg-yellow-600 hover:bg-yellow-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              <Button
+                onClick={snoozeAlarm}
+                disabled={!isAwake || !answerCorrect}
+                className="bg-yellow-600 hover:bg-yellow-700 disabled:opacity-50"
               >
                 Snooze 5 min
               </Button>
-              <Button 
-                onClick={stopAlarm} 
-                disabled={!isAwake}
-                className="bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              <Button
+                onClick={stopAlarm}
+                disabled={!isAwake || !answerCorrect}
+                className="bg-red-600 hover:bg-red-700 disabled:opacity-50"
               >
                 Stop
               </Button>
