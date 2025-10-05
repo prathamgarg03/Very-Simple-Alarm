@@ -3,6 +3,7 @@
 
 import { useEffect, useState } from "react";
 import AlarmsPanel from "@/components/alarms-panel";
+import DAOControls from "@/components/dao-controls";
 
 export default function Page() {
   // Keep initial state undefined so server-rendered HTML doesn't include a
@@ -71,6 +72,13 @@ export default function Page() {
 
       {/* Alarms Section */}
       <AlarmsPanel />
+      
+      {/* DAO Section */}
+      <div className="min-h-screen bg-neutral-950 p-6">
+        <div className="max-w-2xl mx-auto">
+          {/* <DAOControls /> */}
+        </div>
+      </div>
     </div>
   );
 }

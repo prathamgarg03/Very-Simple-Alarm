@@ -7,6 +7,11 @@ import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import SlotTimePicker from "./slot-time-picker";
+import DAOControls from "./dao-controls";
+// import FriendshipAlarmDAOAbi from "../../abi/FriendshipAlarmDAO.json";
+
+
+
 
 interface Alarm {
   id: string;
@@ -86,14 +91,17 @@ export default function AlarmsPanel() {
       <div className="max-w-2xl mx-auto">
         <div className="flex items-center justify-between mb-8">
           <h2 className="text-3xl font-bold">Alarms</h2>
-          <Button
-            onClick={() => setShowAddForm(!showAddForm)}
-            className="bg-neutral-800 hover:bg-neutral-700 text-white"
-            size="sm"
-          >
-            <Plus className="w-4 h-4 mr-2" />
-            Add
-          </Button>
+          {/* <AlarmButton /> */}
+          <div className="flex gap-2">
+            <Button
+              onClick={() => setShowAddForm(!showAddForm)}
+              className="bg-neutral-800 hover:bg-neutral-700 text-white"
+              size="sm"
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              Add
+            </Button>
+          </div>
         </div>
 
         {showAddForm && (
@@ -184,6 +192,11 @@ export default function AlarmsPanel() {
               </Card>
             ))
           )}
+        </div>
+
+        {/* DAO Integration Section */}
+        <div className="mt-12">
+          <DAOControls />
         </div>
       </div>
     </div>
