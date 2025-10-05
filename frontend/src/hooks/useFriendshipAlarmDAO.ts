@@ -34,7 +34,7 @@ export function useFriendshipAlarmDAO(): DAOState & DAOActions {
         CONTRACT_ADDRESS,
         FriendshipAlarmDAOAbi.abi,
         tempSigner
-      );
+      );  
       
       setProvider(tempProvider);
       setSigner(tempSigner);
