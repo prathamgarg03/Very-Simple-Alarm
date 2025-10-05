@@ -104,12 +104,12 @@ export default function AlarmsPanel() {
                   Time
                 </label>
                 <SlotTimePicker onSelect={(time) => setNewAlarmTime(time)} />
-                {/* <input
+                <input
                   type="time"
                   value={newAlarmTime}
                   onChange={(e) => setNewAlarmTime(e.target.value)}
                   className="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-4 py-3 text-lg focus:outline-none focus:ring-2 focus:ring-neutral-600"
-                /> */}
+                />
               </div>
               <div>
                 <label className="text-sm text-neutral-400 mb-2 block">
