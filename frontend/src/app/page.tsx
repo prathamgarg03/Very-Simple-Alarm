@@ -74,8 +74,9 @@ export default function Page() {
       {/* Alarms Section */}
       <AlarmsPanel />
 
-      <div className="flex min-h-screen items-center justify-center">
-      <DistanceSensor />
+      <div className="bg-white p-8 rounded-lg shadow-lg">
+        <h1 className="text-2xl font-bold mb-4">Ultrasonic Sensor</h1>
+        <DistanceSensor />
       </div>
       
       {/* DAO Section */}
