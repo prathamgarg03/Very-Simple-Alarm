@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import AlarmsPanel from "@/components/AlarmsPanel";
 import DAOControls from "@/components/dao-controls";
 import DistanceSensor from "@/components/DistanceSensor";
+import { BackgroundBeams } from "@/components/ui/background-beams";
 
 export default function Page() {
   const [currentTime, setCurrentTime] = useState<Date | undefined>(undefined);
@@ -33,7 +34,7 @@ export default function Page() {
     });
 
   return (
-    <div className="min-h-screen bg-black text-neutral-200">
+    <div className="min-h-screen bg-neutral-950 text-neutral-200">
       <div className="h-screen flex items-center justify-center p-4">
         <div className="text-center">
           <h1 className="text-7xl md:text-9xl font-bold mb-4 tabular-nums tracking-tight">
@@ -65,6 +66,7 @@ export default function Page() {
       </div>
 
       <AlarmsPanel />
+      <BackgroundBeams />
 {/* 
       <div className="bg-white p-8 rounded-lg shadow-lg">
         <h1 className="text-2xl font-bold mb-4">Ultrasonic Sensor</h1>
